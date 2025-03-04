@@ -114,9 +114,7 @@ const scrapeCases = async (advocateName, year,  maxRetries = 8,
             const advocate = advocateMatch ? advocateMatch[1]?.trim() : "";
 
             const courtMatch = listingDateRaw?.match(/Court No. : (\d+)/);
-            const nextDateMatch = listingDateRaw?.match(
-              /Next Date:(\d{2}\/\d{2}\/\d{4})/
-            );
+            const nextDateMatch = listingDateRaw?.match(/(?:Next\s+|Date\s*:\s*|Next Date\s*:\s*)(\d{2}\/\d{2}\/\d{4})/);
             const lastDateMatch = listingDateRaw?.match(
               /Last Date: (\d{2}\/\d{2}\/\d{4})/
             );
@@ -507,9 +505,8 @@ const scrapeCaseType = async (caseType, cno, year, maxRetries = 8,
             const advocate = advocateMatch ? advocateMatch[1]?.trim() : "";
 
             const courtMatch = listingDateRaw?.match(/Court No. : (\d+)/);
-            const nextDateMatch = listingDateRaw?.match(
-              /Next Date:(\d{2}\/\d{2}\/\d{4})/
-            );
+            const nextDateMatch = listingDateRaw?.match(/Next\s+(\d{2}\/\d{2}\/\d{4})/);
+
             const lastDateMatch = listingDateRaw?.match(
               /Last Date: (\d{2}\/\d{2}\/\d{4})/
             );
