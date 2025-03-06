@@ -4,6 +4,8 @@ const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { uploadFileToS3 } = require("../utils/s3");
 const axios = require("axios");
 const fs = require("fs");
+const { promises: fsPromises } = require('fs');
+
 const path = require("path");
 const { launchBrowser } = require("../utils/browserlunch");
 
@@ -442,20 +444,21 @@ const scrapeCaseType = async (caseType, cno, year, maxRetries = 8,
 
     // Wait for the select element to appear
     await page.waitForSelector("select[name='ctype']");
+    await page.select("select[name='ctype']", caseType)
 
     // Select the option by visible text
-    await page.evaluate((caseType) => {
-      const select = document.querySelector("select[name='ctype']");
-      const options = Array.from(select.options);
-      const optionToSelect = options.find(
-        (option) => option.textContent.trim() === caseType
-      );
+    // await page.evaluate((caseType) => {
+    //   const select = document.querySelector("select[name='ctype']");
+    //   const options = Array.from(select.options);
+    //   const optionToSelect = options.find(
+    //     (option) => option.textContent.trim() === caseType
+    //   );
 
-      if (optionToSelect) {
-        optionToSelect.selected = true;
-        select.dispatchEvent(new Event("change"));
-      }
-    }, caseType);
+    //   if (optionToSelect) {
+    //     optionToSelect.selected = true;
+    //     select.dispatchEvent(new Event("change"));
+    //   }
+    // }, caseType);
 
     await page.waitForSelector("input[name='cno']");
     await page.$eval("input[name='cno']", (el) => (el.value = ""));
@@ -473,71 +476,67 @@ const scrapeCaseType = async (caseType, cno, year, maxRetries = 8,
 
     let allCases = [];
 
-    // Scrape Data
-    const scrapeCurrentPage = async (page) => {
-      return await page.evaluate(() => {
-        const cases = [];
-        document.querySelectorAll("table tr").forEach((row) => {
-          const columns = row.querySelectorAll("td");
-          if (columns.length > 3) {
-            let caseNumberRaw = columns[1]?.innerText.trim();
-            let petitionerRaw = columns[2]?.innerText.trim();
-            let listingDateRaw = columns[3]?.innerText.trim();
+   // Scrape Data
+const scrapeCurrentPage = async (page) => {
+  return await page.evaluate(() => {
+    const cases = [];
+    document.querySelectorAll("table tr").forEach((row) => {
+      const columns = row.querySelectorAll("td");
+      if (columns.length > 3) {
+        let caseNumberRaw = columns[1]?.innerText.trim();
+        let petitionerRaw = columns[2]?.innerText.trim();
+        let listingDateRaw = columns[3]?.innerText.trim();
 
-            const diaryMatch = caseNumberRaw?.match(/^([A-Z.\s()\d/]+)/);
-            const diaryNo = diaryMatch ? diaryMatch[1]?.trim() : caseNumberRaw;
-            const statusMatch = caseNumberRaw?.match(/\[(.*?)\]/);
-            const status = statusMatch ? statusMatch[1]?.trim() : "Pending";
+        const diaryMatch = caseNumberRaw?.match(/^([A-Z.\s()\d/-]+)/);
+        const diaryNo = diaryMatch ? diaryMatch[1]?.trim() : caseNumberRaw;
+        const statusMatch = caseNumberRaw?.match(/\[(.*?)\]/);
+        const status = statusMatch ? statusMatch[1]?.trim() : "Pending";
 
-            // Extracting caseType, caseNumber, and caseYear
-            const caseParts = diaryNo.match(/^(.*?)[\s]+(\d+)\s*\/\s*(\d{4})$/);
-            const caseType = caseParts ? caseParts[1]?.trim() : diaryNo;
-            const caseNumber = caseParts ? caseParts[2]?.trim() : "Unknown";
-            const caseYear = caseParts ? caseParts[3]?.trim() : "Unknown";
+        // Updated regex to correctly extract caseType, caseNumber, and caseYear
+        const caseParts = diaryNo.match(/^(.*?)\s+(\d+)\s*\/\s*(\d{4})$/);
+        const caseType = caseParts ? caseParts[1]?.trim() : "Unknown";
+        const caseNumber = caseParts ? caseParts[2]?.trim() : "Unknown";
+        const caseYear = caseParts ? caseParts[3]?.trim() : "Unknown";
+       
 
-            const respondentParts = petitionerRaw?.split("Vs.");
-            const petitioner = respondentParts[0]?.trim();
-            const respondent =
-              respondentParts[1]?.replace(/Advocate\s*:.*/, "").trim() ||
-              "Unknown";
+        const respondentParts = petitionerRaw?.split("Vs.");
+        const petitioner = respondentParts[0]?.trim();
+        const respondent =
+          respondentParts[1]?.replace(/Advocate\s*:.*/, "").trim() || "Unknown";
 
-            const advocateMatch = petitionerRaw?.match(/Advocate\s*:\s*(.*)/);
-            const advocate = advocateMatch ? advocateMatch[1]?.trim() : "";
+        const advocateMatch = petitionerRaw?.match(/Advocate\s*:\s*(.*)/);
+        const advocate = advocateMatch ? advocateMatch[1]?.trim() : "";
 
-            const courtMatch = listingDateRaw?.match(/Court No. : (\d+)/);
-            const nextDateMatch = listingDateRaw?.match(/Next\s+(\d{2}\/\d{2}\/\d{4})/);
+        const courtMatch = listingDateRaw?.match(/Court No. : (\d+)/);
+        const nextDateMatch = listingDateRaw?.match(/Next\s+(\d{2}\/\d{2}\/\d{4})/);
+        const lastDateMatch = listingDateRaw?.match(/Last Date: (\d{2}\/\d{2}\/\d{4})/);
 
-            const lastDateMatch = listingDateRaw?.match(
-              /Last Date: (\d{2}\/\d{2}\/\d{4})/
-            );
+        const courtNo = courtMatch ? courtMatch[1] : "N/A";
+        const nextDate = nextDateMatch ? nextDateMatch[1] : "N/A";
+        const lastDate = lastDateMatch ? lastDateMatch[1] : "N/A";
 
-            const courtNo = courtMatch ? courtMatch[1] : "N/A";
-            const nextDate = nextDateMatch ? nextDateMatch[1] : "N/A";
-            const lastDate = lastDateMatch ? lastDateMatch[1] : "N/A";
+        const orderLinkElement = row.querySelector('a[style*="color:blue"]');
+        const orderLink = orderLinkElement ? orderLinkElement.href : null;
 
-            const orderLinkElement = row.querySelector(
-              'a[style*="color:blue"]'
-            );
-            const orderLink = orderLinkElement ? orderLinkElement?.href : null;
-
-            cases.push({
-              caseType,
-              caseNumber,
-              caseYear,
-              status,
-              petitioner,
-              respondent,
-              advocate,
-              courtNo,
-              nextDate,
-              lastDate,
-              orderLink,
-            });
-          }
+        cases.push({
+          caseType,
+          caseNumber,
+          caseYear,
+          status,
+          petitioner,
+          respondent,
+          advocate,
+          courtNo,
+          nextDate,
+          lastDate,
+          orderLink,
         });
-        return cases;
-      });
-    };
+      }
+    });
+    return cases;
+  });
+};
+
 
     // Loop through pages to scrape data
     while (true) {
@@ -600,72 +599,90 @@ const scrapeCaseType = async (caseType, cno, year, maxRetries = 8,
 
 };
 
-// Download File
 const downloadFile = async (url, outputPath) => {
   return new Promise(async (resolve, reject) => {
-    let retries = 3;
-    while (retries > 0) {
-      try {
-        // console.log(`Downloading file: ${url}`);
+    try {
+      // Simulate delay before making the request
+      await new Promise((res) => setTimeout(res, 1000));
 
-        // Wait 1 second before starting download (Fixes "Failed to load PDF document" error)
-        await new Promise((res) => setTimeout(res, 1000));
+      const response = await axios({
+        url,
+        method: "GET",
+        responseType: "stream",
+      });
 
-        const response = await axios({
-          url,
-          method: "GET",
-          responseType: "stream",
-        });
-
-        if (response.status !== 200) {
-          throw new Error(`HTTP error: ${response.status}`);
-        }
-
-        const writer = fs.createWriteStream(outputPath);
-        response.data.pipe(writer);
-
-        writer.on("finish", async () => {
-          writer.close();
-
-          // Check if file is valid
-          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
-            // console.log(`File downloaded successfully: ${outputPath}`);
-            resolve(outputPath);
-          } else {
-            console.error(`Downloaded file is empty or invalid: ${outputPath}`);
-            fs.unlinkSync(outputPath); // Delete corrupt file
-            retries--;
-            if (retries > 0) {
-              console.log(`Retrying download in 2 seconds... (${retries} attempts left)`);
-              await new Promise((res) => setTimeout(res, 2000));
-            } else {
-              reject(new Error("File download failed after multiple retries"));
-            }
-          }
-        });
-
-        writer.on("error", (err) => {
-          console.error("File write error:", err.message);
-          reject(err);
-        });
-
-        return; // Exit loop if download starts successfully
-      } catch (error) {
-        console.error("Download error:", error.message);
-        retries--;
-        if (retries === 0) {
-          reject(new Error("Failed to download file after multiple attempts"));
-        } else {
-          console.log(`Retrying in 2 seconds... (${retries} attempts left)`);
-          await new Promise((res) => setTimeout(res, 2000));
-        }
+      if (response.status !== 200) {
+        return reject(new Error(`HTTP error: ${response.status}`));
       }
+
+      const writer = fs.createWriteStream(outputPath);
+      response.data.pipe(writer);
+
+      writer.on("finish", async () => {
+        writer.close();
+        // Wait for a moment to ensure the file is fully written
+        await new Promise((res) => setTimeout(res, 500)); // Wait for 500ms
+
+        // Check if file is valid
+        try {
+          const stats = await fs.promises.stat(outputPath);
+          if (stats.size > 0) {
+            return resolve(outputPath); // File downloaded successfully
+          } else {
+            await fs.promises.unlink(outputPath); // Delete empty file
+            return reject(new Error(`Downloaded file is empty: ${outputPath}`));
+          }
+        } catch (statError) {
+          return reject(new Error(`Error checking file: ${statError.message}`));
+        }
+      });
+
+      writer.on("error", (err) => {
+        return reject(new Error(`File write error: ${err.message}`));
+      });
+    } catch (error) {
+      return reject(new Error(`Download error: ${error.message}`));
     }
   });
 };
 
 
-// Process cases in batches
+
+const tryDeleteFile = async (filePath) => {
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      if (fs.existsSync(filePath)) {
+        // Wait 500ms before attempting to delete (to allow file system processes to settle)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        await fs.promises.unlink(filePath); // Using async unlink method for better error handling
+        // console.log(`Deleted file: ${filePath}`);
+        return; // Exit retry loop after successfully deleting the file
+      } else {
+        console.log(`File not found: ${filePath}`);
+        return; // Exit if the file doesn't exist
+      }
+    } catch (error) {
+      console.error(`Error deleting file: ${filePath}`, error);
+      retries--;
+      if (retries > 0) {
+        console.log(
+          `Retrying deletion of file: ${filePath} (${retries} attempts left)`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+      } else {
+        console.error(
+          `Failed to delete file after multiple attempts: ${filePath}`
+        );
+      }
+    }
+  }
+};
+
+
+
+// Your existing processCasesInBatches code starts here...
 const processCasesInBatches = async (cases, batchSize, browser) => {
   for (let i = 0; i < cases.length; i += batchSize) {
     const batch = cases.slice(i, i + batchSize);
@@ -720,39 +737,6 @@ const processCasesInBatches = async (cases, batchSize, browser) => {
 
           caseData.orderDetails = orderDetails;
 
-          const delay = (ms) =>
-            new Promise((resolve) => setTimeout(resolve, ms));
-
-          // Function to try deleting a file with retries
-          const tryDeleteFile = async (filePath) => {
-            let retries = 3;
-            while (retries > 0) {
-              try {
-                if (fs.existsSync(filePath)) {
-                  fs.unlinkSync(filePath);
-                  //   console.log(`Deleted file: ${filePath}`);
-                  return; // Exit retry loop after successfully deleting the file
-                } else {
-                  console.log(`File not found: ${filePath}`);
-                  return; // Exit if the file doesn't exist
-                }
-              } catch (error) {
-                console.error(`Error deleting file: ${filePath}`, error);
-                retries--;
-                if (retries > 0) {
-                  console.log(
-                    `Retrying deletion of file: ${filePath} (${retries} attempts left)`
-                  );
-                } else {
-                  console.error(
-                    `Failed to delete file after multiple attempts: ${filePath}`
-                  );
-                }
-                await delay(1000); // Wait 1 second before retrying
-              }
-            }
-          };
-
           // Main logic to process orders and files
           for (const order of orderDetails) {
             const pdfUrl = order.downloadLink;
@@ -764,26 +748,19 @@ const processCasesInBatches = async (cases, batchSize, browser) => {
               await downloadFile(pdfUrl, outputPath);
 
               // Check if the file exists after download
-              if (!fs.existsSync(outputPath)) {
-                console.error(`File not found after download: ${outputPath}`);
-                continue; // Skip processing if the file is not found
+              if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
+                console.error(`File not found or invalid after download: ${outputPath}`);
+                continue; // Skip processing if the file is not found or invalid
               }
-
-              //   console.log(`File downloaded successfully: ${outputPath}`);
 
               // Upload the file to S3
               const s3Response = await uploadFileToS3(outputPath, fileName);
-              //   console.log(`Uploaded to S3: ${s3Response.Location}`);
-
-              // Attach the S3 link to the order
               order.s3Link = s3Response.Location;
+
               // Try to delete the local file after uploading to S3 with retries
               await tryDeleteFile(outputPath);
             } catch (error) {
-              console.error(
-                `Error processing file ${fileName}:`,
-                error.message
-              );
+              console.error(`Error processing file ${fileName}:`, error.message);
             }
           }
 
@@ -793,9 +770,7 @@ const processCasesInBatches = async (cases, batchSize, browser) => {
           retries++;
           await orderPage.close();
           if (retries >= MAX_RETRIES) {
-            console.error(
-              `Failed to fetch order details after ${MAX_RETRIES} attempts: ${caseData.orderLink}`
-            );
+            console.error(`Failed to fetch order details after ${MAX_RETRIES} attempts: ${caseData.orderLink}`);
           }
         }
       }
@@ -805,4 +780,6 @@ const processCasesInBatches = async (cases, batchSize, browser) => {
   }
 };
 
+
+  
 module.exports = { scrapeCases, scrapePetAndRes, scrapeCaseType };

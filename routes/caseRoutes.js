@@ -112,8 +112,6 @@ router.post("/scrapeCaseType", async (req, res) => {
 
 
 
-
-
 router.post("/fetchJudgementCases", fetchJudgementCases);
 
 router.post("/fetchJudgementCasesNumber", fetchJudgementCasesNumber);
