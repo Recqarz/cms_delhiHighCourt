@@ -3,6 +3,7 @@ const { scrapeCases, scrapePetAndRes, scrapeCaseType } = require("../controllers
 const { fetchJudgementCases } = require("../controllers/judgement");
 const { fetchJudgementCasesNumber } = require("../controllers/judgementCaseNumber");
 const { scrapeCaseUpdateType } = require("../controllers/update/update");
+const { scrapeKeyWordPetAndRes } = require("../controllers/keyword/keyword");
 
 const router = express.Router();
 
@@ -98,6 +99,40 @@ router.post("/scrapeCaseType", async (req, res) => {
         res.status(200).json({ success: true, cases });
     } catch (error) {
         console.error("Error in show data:", error);
+        
+        let errorMessage = "An unexpected error occurred.";
+        if (error.message.includes("Failed to navigate")) {
+            errorMessage = "Unable to access the court website. Please try again later.";
+        } else if (error.message.includes("Failed to scrape")) {
+            errorMessage = "Scraping failed after multiple attempts.";
+        }
+
+        res.status(500).json({ success: false, message: errorMessage });
+    }
+});
+
+
+router.post("/scrapeKeyWordPetAndRes", async (req, res) => {
+    const { petAndRes, year } = req.body;
+    
+    if (!petAndRes || !year) {
+        return res.status(400).json({ success: false, message: "Missing required parameters" });
+    }
+
+    try {
+        const cases = await scrapeKeyWordPetAndRes(petAndRes, year);
+
+        if (!cases || cases.length === 0) {
+            return res.status(200).json({
+                success: false,
+                cases: [],
+                message: "No cases found for the given parameters."
+            });
+        }
+
+        res.status(200).json({ success: true, cases });
+    } catch (error) {
+        console.error("Error in scraping:", error);
         
         let errorMessage = "An unexpected error occurred.";
         if (error.message.includes("Failed to navigate")) {
